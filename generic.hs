@@ -139,8 +139,33 @@ main = do
 -- Section: Generics library
 ----------------------------------------------------------------------------
 
-data Sigma t f where
-  MkSigma :: forall t i f. (Known @t i) => f i -> Sigma t f
+type Sigma :: forall t. (t->Type) -> Type
+data Sigma (f :: t -> Type) where
+  MkSigma :: forall t i f. (Known @t i) => f i -> Sigma @t f
+
+-- (Known @t (i::t)) is a witness for (Singleton i)
+--   with `know` I can get a value of type Singleton t (i::t)
+
+  -- MkSigma :: forall t f. foreach (i::t) -> f i -> Sigma t f
+  -- Pair of a value (i::t) and a value (v::f i)
+
+{- For (Sum a b),   t = SumTag,
+                    sumf = SumF a b :: FunctionSymbol SumTag = Proxy SumTag -> Type
+     Sigma SumTag (NewTyped sumf)  has values like:
+        MkSigma ATag (payload::FieldType (SumF a b) ATag = Int)
+        MkSigma BTag (payload::FieldType (SumF a b) BTag = Bool)
+        MkSigma CTag (payload::FieldType (SumF a b) CTag = a)
+        ...
+
+-- Pedagogically this is our Sigma for sums:
+data Sigma @t (f::FunctionSymbol t) where
+  MkSigma :: forall t (f::FunctionSymbol t).      -- Universal
+             forall (i::t).                       -- Existential
+             Known @t i                           -- Witness for existential
+             => FieldType f i                     -- Field value
+             -> Sigma @t f                        -- Result
+
+-}
 
 data Dict c where Dict :: (c) => Dict c
 
@@ -192,8 +217,19 @@ getPi ::
 getPi pi = getPi' pi know
 
 -- Useful for obtaining @t@ without making it visible in signatures.
+-- ToDo: Why not make FunctionSymbol into an empty data type
+--  data FunctionSymbol :: Type -> Type
+-- Reason: data SumF :: Type -> Type -> FunctionSymbol SumTag
+--     is rejected for not having a Type result.
+--     But it too is just a kind-level thing. This should be fine
+--     data kind SumF :: Type -> Type -> FunctionSymbol SumTag
+--
+-- Ideas:
+--    1.  Kind level data type don't need Type result
+-- or 2.  Empty data types don't need Type result.
+
 type FunctionSymbol :: Type -> Type
-type FunctionSymbol t = Proxy t -> Type
+type FunctionSymbol t = Type
 
 -- (FieldType f i) is the type of the argument to
 --    the data constructor (corresponding to) `i`
@@ -204,6 +240,10 @@ type FunctionSymbol t = Proxy t -> Type
 -- defunctionalized version because we can't partially apply type
 -- synonyms.
 type family FieldType (f :: FunctionSymbol t) (i :: t) :: Type
+
+-- We would prefer this:
+-- type family FieldType (s :: Type) (i :: TagOf s) :: Type
+-- but we got stuck on defining TagOf.
 
 -- | @ForEachField f c@ means that for each @i@ of kind @t@,
 -- @FieldType f i@ has an instance for @c@.
@@ -238,7 +278,7 @@ newtype Newtyped f i = MkNewtyped {getNewtyped :: FieldType f i}
 mashPiSigma ::
   (Tag t) =>
   Pi t f1 ->
-  Sigma t f2 ->
+  Sigma @t f2 ->
   (forall i. (Known @t i) => f1 i -> f2 i -> r) ->
   r
 mashPiSigma pi (MkSigma f) k = k (getPi' pi know) f
@@ -263,8 +303,8 @@ class
       sumf -> sum
   where
   sumConNames :: Pi t (Const String)
-  sumToSigma :: sum -> Sigma t (Newtyped sumf)
-  sigmaToSum :: Sigma t (Newtyped sumf) -> sum
+  sumToSigma :: sum -> Sigma @t (Newtyped sumf)
+  sigmaToSum :: Sigma @t (Newtyped sumf) -> sum
 
 -- Product types will (or could -- that isn't implemented yet) have an
 -- instance of this class generated for them
@@ -294,7 +334,7 @@ genericShowSum' ::
   (Tag t, ForeachField f Show) =>
   Pi t (Const String) -> -- Has a payload, just a String, for each tag t;
   -- the constructor name
-  Sigma t (Newtyped f) -> -- The argment in Sum form
+  Sigma @t (Newtyped f) -> -- The argment in Sum form
   String
 genericShowSum' pi f = mashPiSigma pi f $ \(Const conName) field ->
   conName ++ " " ++ showField know field
@@ -396,14 +436,17 @@ instance Tag SumTag where
 -- ToDo: use data kind?
 data SumF :: Type -> Type -> FunctionSymbol SumTag
 
+-- An alternative we explored
+-- type family FieldType (s :: Type) (i :: TagOf s) :: Type
+-- type instance FieldType (Sum a b) ATag = Int
+-- Need instance TagOf (Sum a b) = SumTag  See #12088
+-- Manually fix with empty TH splice $()
+
+-- type FieldType :: FunctionSymbol t -> t -> Type
 type instance FieldType (SumF a b) ATag = Int
-
 type instance FieldType (SumF a b) BTag = Bool
-
 type instance FieldType (SumF a b) CTag = a
-
 type instance FieldType (SumF a b) DTag = a
-
 type instance FieldType (SumF a b) ETag = b
 
 instance IsSum @SumTag (Sum a b) (SumF a b :: FunctionSymbol SumTag) where
@@ -655,7 +698,7 @@ newtype WrapPi f k s = WrapPi (Pi (f s) k)
 type BetterConst :: forall f. Type -> forall z. f z -> Type
 newtype BetterConst t x = BetterConst t
 
-foo :: Sigma SumTag (WrapPi NestedProductTag (BetterConst String))
+foo :: Sigma @SumTag (WrapPi NestedProductTag (BetterConst String))
 foo =
   MkSigma @_ @ATag
     ( WrapPi
@@ -735,7 +778,7 @@ genericShow' ::
   forall a b x.
   (ForeachTopField a b Show) =>
   Pi SumTag (Const String) ->
-  (x -> Sigma SumTag (WrapPi NestedProductTag (Newtyped2 a b))) ->
+  (x -> Sigma @SumTag (WrapPi NestedProductTag (Newtyped2 a b))) ->
   x ->
   String
 genericShow' pi f x = mashPiSigma pi (f x) $ \(Const conName) (WrapPi fields) ->
@@ -766,7 +809,7 @@ sumOfProductsConNames =
 sumOfProductsToSigmaOfPi ::
   forall a b.
   SumOfProducts a b ->
-  Sigma SumTag (WrapPi NestedProductTag (Newtyped2 a b))
+  Sigma @SumTag (WrapPi NestedProductTag (Newtyped2 a b))
 sumOfProductsToSigmaOfPi = \case
   SP1 a b -> k $ \case
     SNA1 -> a
@@ -796,5 +839,5 @@ sumOfProductsToSigmaOfPi = \case
         SNestedProductTagF s i' ->
         SumOfProductsFamily a b s i'
       ) ->
-      Sigma SumTag (WrapPi NestedProductTag (Newtyped2 a b))
+      Sigma @SumTag (WrapPi NestedProductTag (Newtyped2 a b))
     k g = MkSigma @_ @s (WrapPi (makePi (f g)))
