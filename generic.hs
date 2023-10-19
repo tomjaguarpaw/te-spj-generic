@@ -16,10 +16,10 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE UndecidableSuperClasses #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
-{-# LANGUAGE UndecidableSuperClasses #-}
 
 module Main where
 
@@ -140,15 +140,15 @@ main = do
 -- Section: Generics library
 ----------------------------------------------------------------------------
 
-type Sigma :: forall t. (t->Type) -> Type
+type Sigma :: forall t. (t -> Type) -> Type
 data Sigma (f :: t -> Type) where
   MkSigma :: forall t i f. (Known @t i) => f i -> Sigma @t f
 
 -- (Known @t (i::t)) is a witness for (Singleton i)
 --   with `know` I can get a value of type Singleton t (i::t)
 
-  -- MkSigma :: forall t f. foreach (i::t) -> f i -> Sigma t f
-  -- Pair of a value (i::t) and a value (v::f i)
+-- MkSigma :: forall t f. foreach (i::t) -> f i -> Sigma t f
+-- Pair of a value (i::t) and a value (v::f i)
 
 {- For (Sum a b),   t = SumTag,
                     sumf = SumF a b :: FunctionSymbol SumTag = Proxy SumTag -> Type
@@ -199,7 +199,7 @@ class Tag t where
     m (Pi t g)
 
   provideConstraint' ::
-    Foreach c =>
+    (Foreach c) =>
     Proxy c ->
     Singleton t i ->
     ((c i) => r) ->
@@ -263,16 +263,16 @@ type family
 provideConstraint ::
   forall t c r i.
   (Tag t) =>
-  Foreach c =>
+  (Foreach c) =>
   Singleton t i ->
   ((c i) => r) ->
   r
 provideConstraint = provideConstraint' (Proxy @c)
 
 type Compose :: FunctionSymbol t -> (Type -> Constraint) -> t -> Constraint
-class c (FieldType f i) => Compose f c i where
+class (c (FieldType f i)) => Compose f c i
 
-instance c (FieldType f i) => Compose f c i where
+instance (c (FieldType f i)) => Compose f c i
 
 -- | We can't partially apply type families so instead we
 -- defunctionalize them to a symbol @f@ and then wrap them up in a
@@ -449,9 +449,13 @@ data SumF :: Type -> Type -> FunctionSymbol SumTag
 
 -- type FieldType :: FunctionSymbol t -> t -> Type
 type instance FieldType (SumF a b) ATag = Int
+
 type instance FieldType (SumF a b) BTag = Bool
+
 type instance FieldType (SumF a b) CTag = a
+
 type instance FieldType (SumF a b) DTag = a
+
 type instance FieldType (SumF a b) ETag = b
 
 instance IsSum @SumTag (Sum a b) (SumF a b :: FunctionSymbol SumTag) where
