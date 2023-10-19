@@ -19,6 +19,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
+{-# LANGUAGE UndecidableSuperClasses #-}
 
 module Main where
 
@@ -198,11 +199,10 @@ class Tag t where
     m (Pi t g)
 
   provideConstraint' ::
-    (ForeachField (f :: FunctionSymbol t) c) =>
+    ForeachField c =>
     Proxy c ->
-    Proxy f ->
     Singleton t i ->
-    ((c (FieldType f i)) => r) ->
+    ((c i) => r) ->
     r
 
 makePi' :: (Tag t) => (forall (i :: t). Singleton t i -> f i) -> Pi t f
@@ -247,27 +247,32 @@ type family FieldType (f :: FunctionSymbol t) (i :: t) :: Type
 
 -- | @ForEachField f c@ means that for each @i@ of kind @t@,
 -- @FieldType f i@ has an instance for @c@.
-type ForeachField (f :: FunctionSymbol t) c =
-  ForeachField' t f c (Tags t)
+type ForeachField (c :: t -> Constraint) =
+  ForeachField' t c (Tags t)
 
 -- | The implementation of @ForeachField@
 type family
-  ForeachField' t (f :: FunctionSymbol t) c (ts :: [t]) ::
+  ForeachField' t c (ts :: [t]) ::
     Constraint
   where
-  ForeachField' _ _ _ '[] = ()
-  ForeachField' t f c (i : is) =
-    (c (FieldType f i), ForeachField' t f c is)
+  ForeachField' _ _ '[] = ()
+  ForeachField' t c (i : is) =
+    (c i, ForeachField' t c is)
 
 -- | Witness to the property of @ForEachField@
 provideConstraint ::
-  forall c t (f :: FunctionSymbol t) r i.
+  forall t c r i.
   (Tag t) =>
-  (ForeachField f c) =>
+  ForeachField c =>
   Singleton t i ->
-  ((c (FieldType f i)) => r) ->
+  ((c i) => r) ->
   r
-provideConstraint = provideConstraint' (Proxy @c) (Proxy @f)
+provideConstraint = provideConstraint' (Proxy @c)
+
+type Compose :: FunctionSymbol t -> (Type -> Constraint) -> t -> Constraint
+class c (FieldType f i) => Compose f c i where
+
+instance c (FieldType f i) => Compose f c i where
 
 -- | We can't partially apply type families so instead we
 -- defunctionalize them to a symbol @f@ and then wrap them up in a
@@ -323,15 +328,15 @@ class
 
 showField ::
   forall t (f :: FunctionSymbol t) i.
-  (Tag t, ForeachField f Show) =>
+  (Tag t, ForeachField (Compose f Show)) =>
   Singleton t i ->
   Newtyped f i ->
   String
-showField t = provideConstraint @Show @_ @f t show . getNewtyped
+showField t = provideConstraint @_ @(Compose f Show) t show . getNewtyped
 
 genericShowSum' ::
   forall t (f :: FunctionSymbol t).
-  (Tag t, ForeachField f Show) =>
+  (Tag t, ForeachField (Compose f Show)) =>
   Pi t (Const String) -> -- Has a payload, just a String, for each tag t;
   -- the constructor name
   Sigma @t (Newtyped f) -> -- The argment in Sum form
@@ -341,14 +346,14 @@ genericShowSum' pi f = mashPiSigma pi f $ \(Const conName) field ->
 
 genericShowSum ::
   forall sum t (f :: FunctionSymbol t).
-  (Tag t, IsSum sum f, ForeachField f Show) =>
+  (Tag t, IsSum sum f, ForeachField (Compose f Show)) =>
   sum ->
   String
 genericShowSum x = genericShowSum' @_ (sumConNames @_ @sum) (sumToSigma x)
 
 genericShowProduct' ::
   forall t x (f :: FunctionSymbol t).
-  (ForeachField f Show, Tag t) =>
+  (ForeachField (Compose f Show), Tag t) =>
   String ->
   (x -> Pi t (Newtyped f)) ->
   x ->
@@ -358,7 +363,7 @@ genericShowProduct' conName f x =
 
 genericShowProduct ::
   forall product t (f :: FunctionSymbol t).
-  (Tag t, IsProduct product f, ForeachField f Show) =>
+  (Tag t, IsProduct product f, ForeachField (Compose f Show)) =>
   product ->
   String
 genericShowProduct =
@@ -424,7 +429,7 @@ instance Tag SumTag where
   traversePi f (PiSSumTag a b c d e) =
     PiSSumTag <$> f know a <*> f know b <*> f know c <*> f know d <*> f know e
 
-  provideConstraint' = \_ _ -> \case
+  provideConstraint' = \_ -> \case
     SATag -> \r -> r
     SBTag -> \r -> r
     SCTag -> \r -> r
@@ -508,7 +513,7 @@ instance Tag ProductTag where
   traversePi f (PiSProductTag f1 f2 f3) =
     PiSProductTag <$> f know f1 <*> f know f2 <*> f know f3
 
-  provideConstraint' = \_ _ -> \case
+  provideConstraint' = \_ -> \case
     SField1 -> \r -> r
     SField2 -> \r -> r
     SField3 -> \r -> r
@@ -677,7 +682,7 @@ instance (Known @SumTag a) => Tag (NestedProductTag a) where
       traverseNestedPi g (NestedPi thePi) =
         NestedPi <$> g thePi
 
-  provideConstraint' = \_ _ -> case know @_ @a of
+  provideConstraint' = \_ -> case know @_ @a of
     SATag -> \case
       SNestedProductTag SNA1 -> \r -> r
       SNestedProductTag SNA2 -> \r -> r
