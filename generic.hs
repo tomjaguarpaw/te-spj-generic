@@ -229,7 +229,7 @@ getPi pi = getPi' pi know
 -- or 2.  Empty data types don't need Type result.
 
 type FunctionSymbol :: Type -> Type
-type FunctionSymbol t = Type
+type FunctionSymbol t = Proxy t -> Type
 
 -- (FieldType f i) is the type of the argument to
 --    the data constructor (corresponding to) `i`
