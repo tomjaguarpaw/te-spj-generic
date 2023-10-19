@@ -247,21 +247,18 @@ type family FieldType (f :: FunctionSymbol t) (i :: t) :: Type
 
 -- | @ForEachField f c@ means that for each @i@ of kind @t@,
 -- @FieldType f i@ has an instance for @c@.
-type Foreach t (c :: t -> Constraint) =
-  Foreach' t c (Tags t)
+type Foreach :: forall (t :: Type) -> (t -> Constraint) -> Constraint
+type Foreach t c = Foreach' t c (Tags t)
 
 -- | The implementation of @Foreach@
-type family
-  Foreach' t c (ts :: [t]) ::
-    Constraint
-  where
+type Foreach' :: forall (t :: Type) -> (t -> Constraint) -> [t] -> Constraint
+type family Foreach' t c ts where
   Foreach' _ _ '[] = ()
-  Foreach' t c (i : is) =
-    (c i, Foreach' t c is)
+  Foreach' t c (i : is) = (c i, Foreach' t c is)
 
 -- | Witness to the property of @ForEachField@
 provideConstraint ::
-  forall t c r i.
+  forall (t :: Type) (c :: t -> Constraint) (r :: Type) (i :: t).
   (Tag t) =>
   (Foreach t c) =>
   Singleton t i ->
