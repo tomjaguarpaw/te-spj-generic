@@ -184,10 +184,10 @@ class Tag t where
   -- | All the types of kind @t@
   type Tags t :: [t]
 
-  data Pi t :: (t -> Type) -> Type
+  data Pi :: (t -> Type) -> Type
 
-  getPi' :: forall (i :: t) (f :: t -> Type). Pi t f -> Singleton t i -> f i
-  makePi :: (forall (i :: t). (Known @t i) => f i) -> Pi t f
+  getPi' :: forall (i :: t) (f :: t -> Type). Pi f -> Singleton t i -> f i
+  makePi :: (forall (i :: t). (Known @t i) => f i) -> Pi f
 
   knowns :: Singleton t i -> Dict (Known @t i)
 
@@ -195,8 +195,8 @@ class Tag t where
     forall (f :: t -> Type) (g :: t -> Type) m.
     (Applicative m) =>
     (forall (i :: t). Singleton t i -> f i -> m (g i)) ->
-    Pi t f ->
-    m (Pi t g)
+    Pi f ->
+    m (Pi g)
 
   provideConstraint' ::
     (Foreach t c) =>
@@ -205,15 +205,15 @@ class Tag t where
     ((c i) => r) ->
     r
 
-makePi' :: (Tag t) => (forall (i :: t). Singleton t i -> f i) -> Pi t f
+makePi' :: (Tag t) => (forall (i :: t). Singleton t i -> f i) -> Pi f
 makePi' f = makePi (f know)
 
 makePiProxy ::
-  (Tag t) => (forall (i :: t). (Known @t i) => Proxy i -> f i) -> Pi t f
+  (Tag t) => (forall (i :: t). (Known @t i) => Proxy i -> f i) -> Pi f
 makePiProxy f = makePi (f Proxy)
 
 getPi ::
-  forall t (i :: t) (f :: t -> Type). (Known @t i, Tag t) => Pi t f -> f i
+  forall t (i :: t) (f :: t -> Type). (Known @t i, Tag t) => Pi f -> f i
 getPi pi = getPi' pi know
 
 -- Useful for obtaining @t@ without making it visible in signatures.
@@ -279,7 +279,7 @@ newtype Newtyped f i = MkNewtyped {getNewtyped :: FieldType f i}
 
 mashPiSigma ::
   (Tag t) =>
-  Pi t f1 ->
+  Pi @t f1 ->
   Sigma @t f2 ->
   (forall i. (Known @t i) => f1 i -> f2 i -> r) ->
   r
@@ -288,12 +288,12 @@ mashPiSigma pi (MkSigma f) k = k (getPi' pi know) f
 traversePi_ ::
   (Applicative m, Tag t) =>
   (forall (i :: t). Singleton t i -> f i -> m ()) ->
-  Pi t f ->
+  Pi @t f ->
   m ()
 -- This implementation could be better
 traversePi_ f = fmap (const ()) . traversePi (\st -> fmap Const . f st)
 
-toListPi :: (Tag t) => (forall (i :: t). Singleton t i -> f i -> a) -> Pi t f -> [a]
+toListPi :: (Tag t) => (forall (i :: t). Singleton t i -> f i -> a) -> Pi @t f -> [a]
 toListPi f = getConst . traversePi_ (\st x -> Const [f st x])
 
 type SumIndex :: Type -> Type
@@ -306,9 +306,9 @@ type family SumField sum
 -- instance of this class generated for them
 type IsSum :: Type -> Constraint
 class (Tag (SumIndex sum)) => IsSum sum where
-  sumConNames :: Pi (SumIndex sum) (Const String)
-  sumToSigma :: sum -> Sigma @(SumIndex sum) (Newtyped (SumField sum))
-  sigmaToSum :: Sigma @(SumIndex sum) (Newtyped (SumField sum)) -> sum
+  sumConNames :: Pi @(SumIndex sum) (Const String)
+  sumToSigma :: sum -> Sigma (Newtyped (SumField sum))
+  sigmaToSum :: Sigma (Newtyped (SumField sum)) -> sum
 
 type ProductIndex :: Type -> Type
 type family ProductIndex product
@@ -322,8 +322,8 @@ type family ProductField product
 type IsProduct :: Type -> Constraint
 class (Tag (ProductIndex product)) => IsProduct product where
   productConName :: String
-  productToPi :: product -> Pi (ProductIndex product) (Newtyped (ProductField product))
-  piToProduct :: Pi (ProductIndex product) (Newtyped (ProductField product)) -> product
+  productToPi :: product -> Pi (Newtyped (ProductField product))
+  piToProduct :: Pi (Newtyped (ProductField product)) -> product
 
 -- Section: Client of the generics library, between the generics
 -- library and the user.  It provides a generic implementation of
@@ -402,7 +402,7 @@ instance Tag SumTag where
     SDTag -> Dict
     SETag -> Dict
 
-  data Pi SumTag f = PiSSumTag (f ATag) (f BTag) (f CTag) (f DTag) (f ETag)
+  data Pi f = PiSSumTag (f ATag) (f BTag) (f CTag) (f DTag) (f ETag)
   type Tags SumTag = [ATag, BTag, CTag, DTag, ETag]
   getPi' (PiSSumTag f1 f2 f3 f4 f5) = \case
     SATag -> f1
@@ -495,7 +495,7 @@ instance Tag ProductTag where
     SField2 -> Dict
     SField3 -> Dict
 
-  data Pi ProductTag f = PiSProductTag (f Field1) (f Field2) (f Field3)
+  data Pi f = PiSProductTag (f Field1) (f Field2) (f Field3)
   type Tags ProductTag = [Field1, Field2, Field3]
 
   getPi' (PiSProductTag f1 f2 f3) = \case
@@ -636,7 +636,7 @@ instance (Known @SumTag a) => Tag (NestedProductTag a) where
 
   type Tags (NestedProductTag a) = TheTags a
 
-  data Pi (NestedProductTag a) f = NestedPi {unNestedPi :: ThePi a f}
+  data Pi @(NestedProductTag a) f = NestedPi {unNestedPi :: ThePi a f}
 
   getPi' =
     unNestedPi
@@ -696,7 +696,7 @@ type WrapPi ::
   (forall (z :: t). f z -> Type) ->
   t ->
   Type
-newtype WrapPi f k s = WrapPi (Pi (f s) k)
+newtype WrapPi f k s = WrapPi (Pi @(f s) k)
 
 type BetterConst :: forall f. Type -> forall z. f z -> Type
 newtype BetterConst t x = BetterConst t
@@ -780,7 +780,7 @@ provideConstraintNested = case know @_ @s of
 genericShow' ::
   forall a b x.
   (ForeachTopField a b Show) =>
-  Pi SumTag (Const String) ->
+  Pi @SumTag (Const String) ->
   (x -> Sigma @SumTag (WrapPi NestedProductTag (Newtyped2 a b))) ->
   x ->
   String
@@ -799,7 +799,7 @@ genericShowNested :: (Show a, Show b) => SumOfProducts a b -> String
 genericShowNested =
   genericShow' sumOfProductsConNames sumOfProductsToSigmaOfPi
 
-sumOfProductsConNames :: Pi SumTag (Const String)
+sumOfProductsConNames :: Pi @SumTag (Const String)
 sumOfProductsConNames =
   makePi' $
     Const . \case
