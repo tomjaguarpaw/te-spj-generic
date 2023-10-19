@@ -305,21 +305,25 @@ type family SumField sum
 -- Sum types will (or could -- that isn't implemented yet) have an
 -- instance of this class generated for them
 type IsSum :: Type -> Constraint
-class (Tag (SumIndex sum)) => IsSum (sum :: Type) where
+class (Tag (SumIndex sum)) => IsSum sum where
   sumConNames :: Pi (SumIndex sum) (Const String)
   sumToSigma :: sum -> Sigma @(SumIndex sum) (Newtyped (SumField sum))
   sigmaToSum :: Sigma @(SumIndex sum) (Newtyped (SumField sum)) -> sum
 
+type ProductIndex :: Type -> Type
+type family ProductIndex product
+
+type ProductField ::
+  forall (product :: Type) -> FunctionSymbol (ProductIndex product)
+type family ProductField product
+
 -- Product types will (or could -- that isn't implemented yet) have an
 -- instance of this class generated for them
-class
-  IsProduct (product :: Type) (productf :: FunctionSymbol t)
-    | product -> productf,
-      productf -> product
-  where
+type IsProduct :: Type -> Constraint
+class (Tag (ProductIndex product)) => IsProduct product where
   productConName :: String
-  productToPi :: product -> Pi t (Newtyped productf)
-  piToProduct :: Pi t (Newtyped productf) -> product
+  productToPi :: product -> Pi (ProductIndex product) (Newtyped (ProductField product))
+  piToProduct :: Pi (ProductIndex product) (Newtyped (ProductField product)) -> product
 
 -- Section: Client of the generics library, between the generics
 -- library and the user.  It provides a generic implementation of
@@ -361,12 +365,12 @@ genericShowProduct' conName f x =
   conName ++ " " ++ unwords (toListPi showField (f x))
 
 genericShowProduct ::
-  forall product t (f :: FunctionSymbol t).
-  (Tag t, IsProduct product f, Foreach t (Compose f Show)) =>
+  forall product.
+  (IsProduct product, Foreach (ProductIndex product) (Compose (ProductField product) Show)) =>
   product ->
   String
 genericShowProduct =
-  genericShowProduct' @t (productConName @_ @product) productToPi
+  genericShowProduct' @(ProductIndex product) (productConName @product) productToPi
 
 {- --------------------------------------------------------------------------
 -- Section: Generated code
@@ -536,7 +540,11 @@ type family ProductFamily (a :: Type) (t :: ProductTag) :: Type where
   ProductFamily _ Field2 = Bool
   ProductFamily a Field3 = a
 
-instance IsProduct (Product a) (ProductF a) where
+type instance ProductIndex (Product a) = ProductTag
+
+type instance ProductField (Product a) = ProductF a
+
+instance IsProduct (Product a) where
   productConName = "Product"
   productToPi (Product f1 f2 f3) =
     makePi'
