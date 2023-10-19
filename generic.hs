@@ -199,7 +199,7 @@ class Tag t where
     m (Pi t g)
 
   provideConstraint' ::
-    ForeachField c =>
+    Foreach c =>
     Proxy c ->
     Singleton t i ->
     ((c i) => r) ->
@@ -247,23 +247,23 @@ type family FieldType (f :: FunctionSymbol t) (i :: t) :: Type
 
 -- | @ForEachField f c@ means that for each @i@ of kind @t@,
 -- @FieldType f i@ has an instance for @c@.
-type ForeachField (c :: t -> Constraint) =
-  ForeachField' t c (Tags t)
+type Foreach (c :: t -> Constraint) =
+  Foreach' t c (Tags t)
 
--- | The implementation of @ForeachField@
+-- | The implementation of @Foreach@
 type family
-  ForeachField' t c (ts :: [t]) ::
+  Foreach' t c (ts :: [t]) ::
     Constraint
   where
-  ForeachField' _ _ '[] = ()
-  ForeachField' t c (i : is) =
-    (c i, ForeachField' t c is)
+  Foreach' _ _ '[] = ()
+  Foreach' t c (i : is) =
+    (c i, Foreach' t c is)
 
 -- | Witness to the property of @ForEachField@
 provideConstraint ::
   forall t c r i.
   (Tag t) =>
-  ForeachField c =>
+  Foreach c =>
   Singleton t i ->
   ((c i) => r) ->
   r
@@ -328,7 +328,7 @@ class
 
 showField ::
   forall t (f :: FunctionSymbol t) i.
-  (Tag t, ForeachField (Compose f Show)) =>
+  (Tag t, Foreach (Compose f Show)) =>
   Singleton t i ->
   Newtyped f i ->
   String
@@ -336,7 +336,7 @@ showField t = provideConstraint @_ @(Compose f Show) t show . getNewtyped
 
 genericShowSum' ::
   forall t (f :: FunctionSymbol t).
-  (Tag t, ForeachField (Compose f Show)) =>
+  (Tag t, Foreach (Compose f Show)) =>
   Pi t (Const String) -> -- Has a payload, just a String, for each tag t;
   -- the constructor name
   Sigma @t (Newtyped f) -> -- The argment in Sum form
@@ -346,14 +346,14 @@ genericShowSum' pi f = mashPiSigma pi f $ \(Const conName) field ->
 
 genericShowSum ::
   forall sum t (f :: FunctionSymbol t).
-  (Tag t, IsSum sum f, ForeachField (Compose f Show)) =>
+  (Tag t, IsSum sum f, Foreach (Compose f Show)) =>
   sum ->
   String
 genericShowSum x = genericShowSum' @_ (sumConNames @_ @sum) (sumToSigma x)
 
 genericShowProduct' ::
   forall t x (f :: FunctionSymbol t).
-  (ForeachField (Compose f Show), Tag t) =>
+  (Foreach (Compose f Show), Tag t) =>
   String ->
   (x -> Pi t (Newtyped f)) ->
   x ->
@@ -363,7 +363,7 @@ genericShowProduct' conName f x =
 
 genericShowProduct ::
   forall product t (f :: FunctionSymbol t).
-  (Tag t, IsProduct product f, ForeachField (Compose f Show)) =>
+  (Tag t, IsProduct product f, Foreach (Compose f Show)) =>
   product ->
   String
 genericShowProduct =
