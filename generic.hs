@@ -199,7 +199,7 @@ class Tag t where
     m (Pi t g)
 
   provideConstraint' ::
-    (Foreach c) =>
+    (Foreach t c) =>
     Proxy c ->
     Singleton t i ->
     ((c i) => r) ->
@@ -247,7 +247,7 @@ type family FieldType (f :: FunctionSymbol t) (i :: t) :: Type
 
 -- | @ForEachField f c@ means that for each @i@ of kind @t@,
 -- @FieldType f i@ has an instance for @c@.
-type Foreach (c :: t -> Constraint) =
+type Foreach t (c :: t -> Constraint) =
   Foreach' t c (Tags t)
 
 -- | The implementation of @Foreach@
@@ -263,7 +263,7 @@ type family
 provideConstraint ::
   forall t c r i.
   (Tag t) =>
-  (Foreach c) =>
+  (Foreach t c) =>
   Singleton t i ->
   ((c i) => r) ->
   r
@@ -328,7 +328,7 @@ class
 
 showField ::
   forall t (f :: FunctionSymbol t) i.
-  (Tag t, Foreach (Compose f Show)) =>
+  (Tag t, Foreach t (Compose f Show)) =>
   Singleton t i ->
   Newtyped f i ->
   String
@@ -336,7 +336,7 @@ showField t = provideConstraint @_ @(Compose f Show) t show . getNewtyped
 
 genericShowSum' ::
   forall t (f :: FunctionSymbol t).
-  (Tag t, Foreach (Compose f Show)) =>
+  (Tag t, Foreach t (Compose f Show)) =>
   Pi t (Const String) -> -- Has a payload, just a String, for each tag t;
   -- the constructor name
   Sigma @t (Newtyped f) -> -- The argment in Sum form
@@ -346,14 +346,14 @@ genericShowSum' pi f = mashPiSigma pi f $ \(Const conName) field ->
 
 genericShowSum ::
   forall sum t (f :: FunctionSymbol t).
-  (Tag t, IsSum sum f, Foreach (Compose f Show)) =>
+  (Tag t, IsSum sum f, Foreach t (Compose f Show)) =>
   sum ->
   String
 genericShowSum x = genericShowSum' @_ (sumConNames @_ @sum) (sumToSigma x)
 
 genericShowProduct' ::
   forall t x (f :: FunctionSymbol t).
-  (Foreach (Compose f Show), Tag t) =>
+  (Foreach t (Compose f Show), Tag t) =>
   String ->
   (x -> Pi t (Newtyped f)) ->
   x ->
@@ -363,7 +363,7 @@ genericShowProduct' conName f x =
 
 genericShowProduct ::
   forall product t (f :: FunctionSymbol t).
-  (Tag t, IsProduct product f, Foreach (Compose f Show)) =>
+  (Tag t, IsProduct product f, Foreach t (Compose f Show)) =>
   product ->
   String
 genericShowProduct =
