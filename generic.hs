@@ -347,7 +347,9 @@ genericShowSum x = mashPiSigma (sumConNames @sum) (sumToSigma x) $
 
 genericShowProduct ::
   forall product.
-  (IsProduct product, Foreach (ProductIndex product) (Compose (ProductField product) Show)) =>
+  ( IsProduct product,
+    Foreach (ProductIndex product) (Compose (ProductField product) Show)
+  ) =>
   product ->
   String
 genericShowProduct x =
