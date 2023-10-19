@@ -337,40 +337,21 @@ showField ::
   String
 showField t = provideConstraint @_ @(Compose f Show) t show . getNewtyped
 
-genericShowSum' ::
-  forall t (f :: FunctionSymbol t).
-  (Tag t, Foreach t (Compose f Show)) =>
-  Pi t (Const String) -> -- Has a payload, just a String, for each tag t;
-  -- the constructor name
-  Sigma @t (Newtyped f) -> -- The argment in Sum form
-  String
-genericShowSum' pi f = mashPiSigma pi f $ \(Const conName) field ->
-  conName ++ " " ++ showField know field
-
 genericShowSum ::
   forall sum.
   (IsSum sum, Foreach (SumIndex sum) (Compose (SumField sum) Show)) =>
   sum ->
   String
-genericShowSum x = genericShowSum' @_ (sumConNames @sum) (sumToSigma x)
-
-genericShowProduct' ::
-  forall t x (f :: FunctionSymbol t).
-  (Foreach t (Compose f Show), Tag t) =>
-  String ->
-  (x -> Pi t (Newtyped f)) ->
-  x ->
-  String
-genericShowProduct' conName f x =
-  conName ++ " " ++ unwords (toListPi showField (f x))
+genericShowSum x = mashPiSigma (sumConNames @sum) (sumToSigma x) $
+  \(Const conName) field -> conName ++ " " ++ showField know field
 
 genericShowProduct ::
   forall product.
   (IsProduct product, Foreach (ProductIndex product) (Compose (ProductField product) Show)) =>
   product ->
   String
-genericShowProduct =
-  genericShowProduct' @(ProductIndex product) (productConName @product) productToPi
+genericShowProduct x =
+  productConName @product ++ " " ++ unwords (toListPi showField (productToPi x))
 
 {- --------------------------------------------------------------------------
 -- Section: Generated code
