@@ -296,17 +296,19 @@ traversePi_ f = fmap (const ()) . traversePi (\st -> fmap Const . f st)
 toListPi :: (Tag t) => (forall (i :: t). Singleton t i -> f i -> a) -> Pi t f -> [a]
 toListPi f = getConst . traversePi_ (\st x -> Const [f st x])
 
+type SumIndex :: Type -> Type
+type family SumIndex sum
+
+type SumField :: forall (sum :: Type) -> FunctionSymbol (SumIndex sum)
+type family SumField sum
+
 -- Sum types will (or could -- that isn't implemented yet) have an
 -- instance of this class generated for them
-type IsSum :: forall t. Type -> FunctionSymbol t -> Constraint
-class
-  IsSum (sum :: Type) (sumf :: FunctionSymbol t)
-    | sum -> sumf,
-      sumf -> sum
-  where
-  sumConNames :: Pi t (Const String)
-  sumToSigma :: sum -> Sigma @t (Newtyped sumf)
-  sigmaToSum :: Sigma @t (Newtyped sumf) -> sum
+type IsSum :: Type -> Constraint
+class (Tag (SumIndex sum)) => IsSum (sum :: Type) where
+  sumConNames :: Pi (SumIndex sum) (Const String)
+  sumToSigma :: sum -> Sigma @(SumIndex sum) (Newtyped (SumField sum))
+  sigmaToSum :: Sigma @(SumIndex sum) (Newtyped (SumField sum)) -> sum
 
 -- Product types will (or could -- that isn't implemented yet) have an
 -- instance of this class generated for them
@@ -342,11 +344,11 @@ genericShowSum' pi f = mashPiSigma pi f $ \(Const conName) field ->
   conName ++ " " ++ showField know field
 
 genericShowSum ::
-  forall sum t (f :: FunctionSymbol t).
-  (Tag t, IsSum sum f, Foreach t (Compose f Show)) =>
+  forall sum.
+  (IsSum sum, Foreach (SumIndex sum) (Compose (SumField sum) Show)) =>
   sum ->
   String
-genericShowSum x = genericShowSum' @_ (sumConNames @_ @sum) (sumToSigma x)
+genericShowSum x = genericShowSum' @_ (sumConNames @sum) (sumToSigma x)
 
 genericShowProduct' ::
   forall t x (f :: FunctionSymbol t).
@@ -455,7 +457,11 @@ type instance FieldType (SumF a b) DTag = a
 
 type instance FieldType (SumF a b) ETag = b
 
-instance IsSum @SumTag (Sum a b) (SumF a b :: FunctionSymbol SumTag) where
+type instance SumField (Sum a b) = SumF a b
+
+type instance SumIndex (Sum a b) = SumTag
+
+instance IsSum (Sum a b) where
   sumConNames =
     makePi' $
       Const . \case
