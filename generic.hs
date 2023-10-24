@@ -76,7 +76,7 @@ Converting to generic rep
 
   data Sigma t f where
     Sigma :: forall t i k. (Known @t i)   -- Tag
-                        => k i            -- Payload, often essentially (FieldType t i)
+                        => k i            -- Payload, often essentially (Apply t i)
                                           --   wrapped in a newtype
                         -> Sigma t k
 
@@ -88,8 +88,8 @@ In our case,
 
 eg.   sumToSigma (A 3 :: Sum t1 t2)
          = Sigma @SumTag @ATag @_ (dict :: Known @SumTag ATag)
-                                  (MkNewtyped @(SumF t1 t2) @ATag
-                                              (3 :: FieldType (SumF t1 t2) ATag))
+                                  (MkNewtyped @(MySumF t1 t2) @ATag
+                                              (3 :: Apply (MySumF t1 t2) ATag))
 -}
 
 ----------------------------------------------------------------------------
@@ -98,7 +98,7 @@ eg.   sumToSigma (A 3 :: Sum t1 t2)
 
 -- Currently this library works for types with multiple constructors
 -- each with a single field ...
-data Sum a b
+data MySum a b
   = A Int
   | B Bool
   | C a
@@ -118,7 +118,7 @@ data SumOfProducts a b
   | SP5 Char
 
 -- We can obtain show generically!
-showSum :: (Show a, Show b) => Sum a b -> String
+showSum :: (Show a, Show b) => MySum a b -> String
 showSum = genericShowSum
 
 -- We can obtain show generically!
@@ -150,12 +150,12 @@ data Sigma (f :: t -> Type) where
 -- MkSigma :: forall t f. foreach (i::t) -> f i -> Sigma t f
 -- Pair of a value (i::t) and a value (v::f i)
 
-{- For (Sum a b),   t = SumTag,
-                    sumf = SumF a b :: FunctionSymbol SumTag = Proxy SumTag -> Type
+{- For (MySum a b),   t = SumTag,
+                    sumf = MySumF a b :: FunctionSymbol SumTag = Proxy SumTag -> Type
      Sigma SumTag (NewTyped sumf)  has values like:
-        MkSigma ATag (payload::FieldType (SumF a b) ATag = Int)
-        MkSigma BTag (payload::FieldType (SumF a b) BTag = Bool)
-        MkSigma CTag (payload::FieldType (SumF a b) CTag = a)
+        MkSigma ATag (payload::Apply (MySumF a b) ATag = Int)
+        MkSigma BTag (payload::Apply (MySumF a b) BTag = Bool)
+        MkSigma CTag (payload::Apply (MySumF a b) CTag = a)
         ...
 
 -- Pedagogically this is our Sigma for sums:
@@ -163,7 +163,7 @@ data Sigma @t (f::FunctionSymbol t) where
   MkSigma :: forall t (f::FunctionSymbol t).      -- Universal
              forall (i::t).                       -- Existential
              Known @t i                           -- Witness for existential
-             => FieldType f i                     -- Field value
+             => Apply f i                     -- Field value
              -> Sigma @t f                        -- Result
 
 -}
@@ -172,40 +172,40 @@ data Dict c where Dict :: (c) => Dict c
 
 type Known :: forall t. t -> Constraint
 class Known (i :: t) where
-  know :: Singleton t i
+  know :: Singleton i
 
-knowProxy :: forall t i f. (Known @t i) => f i -> Singleton t i
+knowProxy :: forall t i f. (Known @t i) => f i -> Singleton i
 knowProxy _ = know @_ @i
 
 -- | @Singleton t@ is the "singleton type" version of @t@
 class Tag t where
-  data Singleton t :: t -> Type
+  data Singleton (i::t) :: Type
 
   -- | All the types of kind @t@
   type Tags t :: [t]
 
   data Pi :: (t -> Type) -> Type
 
-  getPi' :: forall (i :: t) (f :: t -> Type). Pi f -> Singleton t i -> f i
+  getPi' :: forall (i :: t) (f :: t -> Type). Pi f -> Singleton i -> f i
   makePi :: (forall (i :: t). (Known @t i) => f i) -> Pi f
 
-  knowns :: Singleton t i -> Dict (Known @t i)
+  knowns :: Singleton i -> Dict (Known @t i)
 
   traversePi ::
     forall (f :: t -> Type) (g :: t -> Type) m.
     (Applicative m) =>
-    (forall (i :: t). Singleton t i -> f i -> m (g i)) ->
+    (forall (i :: t). Singleton i -> f i -> m (g i)) ->
     Pi f ->
     m (Pi g)
 
   provideConstraint' ::
     (Foreach t c) =>
     Proxy c ->
-    Singleton t i ->
+    Singleton i ->
     ((c i) => r) ->
     r
 
-makePi' :: (Tag t) => (forall (i :: t). Singleton t i -> f i) -> Pi f
+makePi' :: (Tag t) => (forall (i :: t). Singleton i -> f i) -> Pi f
 makePi' f = makePi (f know)
 
 makePiProxy ::
@@ -219,19 +219,21 @@ getPi pi = getPi' pi know
 -- Useful for obtaining @t@ without making it visible in signatures.
 -- ToDo: Why not make FunctionSymbol into an empty data type
 --  data FunctionSymbol :: Type -> Type
--- Reason: data SumF :: Type -> Type -> FunctionSymbol SumTag
+-- Reason: data MySumF :: Type -> Type -> FunctionSymbol SumTag
 --     is rejected for not having a Type result.
 --     But it too is just a kind-level thing. This should be fine
---     data kind SumF :: Type -> Type -> FunctionSymbol SumTag
+--     data kind MySumF :: Type -> Type -> FunctionSymbol SumTag
 --
 -- Ideas:
 --    1.  Kind level data type don't need Type result
 -- or 2.  Empty data types don't need Type result.
 
-type FunctionSymbol :: Type -> Type
-type FunctionSymbol t = Proxy t -> Type
+type FunctionSymbol :: Type -> Type -> Type
+-- A type (f :: FunctionSymbol s t) represents
+-- a type-level function from s to t.
+type FunctionSymbol s t = Proxy s -> Proxy t -> Type
 
--- (FieldType f i) is the type of the argument to
+-- (Apply f i) is the type of the argument to
 --    the data constructor (corresponding to) `i`
 --    in the data type (corresponding to) `f`.
 --
@@ -239,14 +241,14 @@ type FunctionSymbol t = Proxy t -> Type
 -- @Type@, represented by the function symbol @f@.  We need this
 -- defunctionalized version because we can't partially apply type
 -- synonyms.
-type family FieldType (f :: FunctionSymbol t) (i :: t) :: Type
+type family Apply (f :: FunctionSymbol s t) (i :: s) :: t
 
 -- We would prefer this:
--- type family FieldType (s :: Type) (i :: TagOf s) :: Type
+-- type family Apply (s :: Type) (i :: TagOf s) :: Type
 -- but we got stuck on defining TagOf.
 
 -- | @ForEachField f c@ means that for each @i@ of kind @t@,
--- @FieldType f i@ has an instance for @c@.
+-- @Apply f i@ has an instance for @c@.
 type Foreach :: forall (t :: Type) -> (t -> Constraint) -> Constraint
 type Foreach t c = Foreach' t c (Tags t)
 
@@ -261,21 +263,21 @@ provideConstraint ::
   forall (t :: Type) (c :: t -> Constraint) (r :: Type) (i :: t).
   (Tag t) =>
   (Foreach t c) =>
-  Singleton t i ->
+  Singleton i ->
   ((c i) => r) ->
   r
 provideConstraint = provideConstraint' (Proxy @c)
 
-type Compose :: FunctionSymbol t -> (Type -> Constraint) -> t -> Constraint
-class (c (FieldType f i)) => Compose f c i
+type Compose :: FunctionSymbol t u -> (u -> Constraint) -> t -> Constraint
+class (c (Apply f i)) => Compose f c i
 
-instance (c (FieldType f i)) => Compose f c i
+instance (c (Apply f i)) => Compose f c i
 
 -- | We can't partially apply type families so instead we
 -- defunctionalize them to a symbol @f@ and then wrap them up in a
 -- newtype for use when we do need to partially apply them.
-type Newtyped :: forall t. FunctionSymbol t -> t -> Type
-newtype Newtyped f i = MkNewtyped {getNewtyped :: FieldType f i}
+type Newtyped :: forall t. FunctionSymbol t Type -> t -> Type
+newtype Newtyped f i = MkNewtyped {getNewtyped :: Apply f i}
 
 mashPiSigma ::
   (Tag t) =>
@@ -287,34 +289,44 @@ mashPiSigma pi (MkSigma f) k = k (getPi' pi know) f
 
 traversePi_ ::
   (Applicative m, Tag t) =>
-  (forall (i :: t). Singleton t i -> f i -> m ()) ->
+  (forall (i :: t). Singleton i -> f i -> m ()) ->
   Pi @t f ->
   m ()
 -- This implementation could be better
 traversePi_ f = fmap (const ()) . traversePi (\st -> fmap Const . f st)
 
-toListPi :: (Tag t) => (forall (i :: t). Singleton t i -> f i -> a) -> Pi @t f -> [a]
+toListPi :: (Tag t) => (forall (i :: t). Singleton i -> f i -> a) -> Pi @t f -> [a]
 toListPi f = getConst . traversePi_ (\st x -> Const [f st x])
 
-type SumIndex :: Type -> Type
-type family SumIndex sum
+type SumTag :: Type -> Type
+-- Takes the user type to a type (usually an enumeration)
+--    representing each contructor
+--    e.g. instance SumTag (Maybe a) = Bool
+type family SumTag sum
 
-type SumField :: forall (sum :: Type) -> FunctionSymbol (SumIndex sum)
+type SumField :: forall (sum :: Type) -> FunctionSymbol (SumTag sum) Type
+-- Takes the user type to an empty data type
 type family SumField sum
 
 -- Sum types will (or could -- that isn't implemented yet) have an
 -- instance of this class generated for them
+--    e.g.  instance IsSum (Maybe a)
 type IsSum :: Type -> Constraint
-class (Tag (SumIndex sum)) => IsSum sum where
-  sumConNames :: Pi @(SumIndex sum) (Const String)
+class Tag (SumTag sum) => IsSum sum where
+  sumConName :: forall (i :: SumTag sum). Singleton i -> String
+    -- ToDo: we'd prefer to say
+    -- sumConName :: forall (i :: SumTag sum). Known i => String
   sumToSigma :: sum -> Sigma (Newtyped (SumField sum))
   sigmaToSum :: Sigma (Newtyped (SumField sum)) -> sum
+
+sumConName' :: forall sum (i :: SumTag sum). (IsSum sum, Known i) => String
+sumConName' = sumConName @sum (know @_ @i)
 
 type ProductIndex :: Type -> Type
 type family ProductIndex product
 
 type ProductField ::
-  forall (product :: Type) -> FunctionSymbol (ProductIndex product)
+  forall (product :: Type) -> FunctionSymbol (ProductIndex product) Type
 type family ProductField product
 
 -- Product types will (or could -- that isn't implemented yet) have an
@@ -330,20 +342,22 @@ class (Tag (ProductIndex product)) => IsProduct product where
 -- Show.
 
 showField ::
-  forall t (f :: FunctionSymbol t) i.
+  forall t (f :: FunctionSymbol t Type) i.
   (Tag t, Foreach t (Compose f Show)) =>
-  Singleton t i ->
+  Singleton i ->
   Newtyped f i ->
   String
 showField t = provideConstraint @_ @(Compose f Show) t show . getNewtyped
 
 genericShowSum ::
   forall sum.
-  (IsSum sum, Foreach (SumIndex sum) (Compose (SumField sum) Show)) =>
-  sum ->
-  String
-genericShowSum x = mashPiSigma (sumConNames @sum) (sumToSigma x) $
-  \(Const conName) field -> conName ++ " " ++ showField know field
+  (IsSum sum,
+   Foreach (SumTag sum) (Compose (SumField sum) Show))  -- All fields of sum satisfy Show
+  => sum -> String
+genericShowSum x
+  = case sumToSigma x of
+       MkSigma (field :: f tag) -> sumConName' @sum @tag ++ " " ++ showField know field
+       -- MkSigma @_ @tag field -> sumConName' @sum @tag ++ " " ++ showField know field
 
 genericShowProduct ::
   forall product.
@@ -365,35 +379,32 @@ we generate
 \* The data type SumTag = ATag | BTag | ...
 \* An instance of the class Tag: instance Tag SumTag
 \* An instance of the class Known for each data constructor.
-\* An empty data type SumF
+\* An empty data type MySumF
 \* A type family SumFamily
-\* An instance FieldTypes (SumF a b)
-\* An instance for IsSum (Sum a b) (SumF a b)
+\* An instance Applys (MySumF a b)
+\* An instance for IsSum (Sum a b) (MySumF a b)
 
 -------------------------------------------------------------------------- -}
 
 -- For data Sum
 
 -- | One value for each constructor of the sum type
-data SumTag = ATag | BTag | CTag | DTag | ETag
+data MySumTag = ATag | BTag | CTag | DTag | ETag
 
-instance Known @SumTag ATag where know = SATag
+-- Singleton stuff for MySumTag
+instance Known @MySumTag ATag where know = SATag
+instance Known @MySumTag BTag where know = SBTag
+instance Known @MySumTag CTag where know = SCTag
+instance Known @MySumTag DTag where know = SDTag
+instance Known @MySumTag ETag where know = SETag
 
-instance Known @SumTag BTag where know = SBTag
-
-instance Known @SumTag CTag where know = SCTag
-
-instance Known @SumTag DTag where know = SDTag
-
-instance Known @SumTag ETag where know = SETag
-
-instance Tag SumTag where
-  data Singleton SumTag t where
-    SATag :: Singleton SumTag ATag
-    SBTag :: Singleton SumTag BTag
-    SCTag :: Singleton SumTag CTag
-    SDTag :: Singleton SumTag DTag
-    SETag :: Singleton SumTag ETag
+instance Tag MySumTag where
+  data Singleton t where
+    SATag :: Singleton ATag
+    SBTag :: Singleton BTag
+    SCTag :: Singleton CTag
+    SDTag :: Singleton DTag
+    SETag :: Singleton ETag
 
   knowns = \case
     SATag -> Dict
@@ -402,18 +413,18 @@ instance Tag SumTag where
     SDTag -> Dict
     SETag -> Dict
 
-  data Pi f = PiSSumTag (f ATag) (f BTag) (f CTag) (f DTag) (f ETag)
-  type Tags SumTag = [ATag, BTag, CTag, DTag, ETag]
-  getPi' (PiSSumTag f1 f2 f3 f4 f5) = \case
+  data Pi f = PiSMySumTag (f ATag) (f BTag) (f CTag) (f DTag) (f ETag)
+  type Tags MySumTag = [ATag, BTag, CTag, DTag, ETag]
+  getPi' (PiSMySumTag f1 f2 f3 f4 f5) = \case
     SATag -> f1
     SBTag -> f2
     SCTag -> f3
     SDTag -> f4
     SETag -> f5
-  makePi f = PiSSumTag f f f f f
+  makePi f = PiSMySumTag f f f f f
 
-  traversePi f (PiSSumTag a b c d e) =
-    PiSSumTag <$> f know a <*> f know b <*> f know c <*> f know d <*> f know e
+  traversePi f (PiSMySumTag a b c d e) =
+    PiSMySumTag <$> f know a <*> f know b <*> f know c <*> f know d <*> f know e
 
   provideConstraint' = \_ -> \case
     SATag -> \r -> r
@@ -425,33 +436,31 @@ instance Tag SumTag where
 -- | A empty data type, used so that we can defunctionalize the mapping
 -- @SumFamily@
 -- ToDo: use data kind?
-data SumF :: Type -> Type -> FunctionSymbol SumTag
+data MySumF :: Type -> Type -> FunctionSymbol MySumTag Type
+            -- Type -> Type -> Proxy MySumTag -> Type
 
--- An alternative we explored
--- type family FieldType (s :: Type) (i :: TagOf s) :: Type
--- type instance FieldType (Sum a b) ATag = Int
--- Need instance TagOf (Sum a b) = SumTag  See #12088
+-- This is what we really want:
+--   type family Apply (s :: Type) (i :: TagOf s) :: Type
+--   type instance Apply (MySum a b) ATag = Int
+--
+-- Need instance TagOf (MySum a b) = MySumTag  See #12088
 -- Manually fix with empty TH splice $()
+--
+-- Instead we encode using MySumF
 
--- type FieldType :: FunctionSymbol t -> t -> Type
-type instance FieldType (SumF a b) ATag = Int
+-- type Apply :: FunctionSymbol s t -> s -> t
+type instance Apply (MySumF a b) ATag = Int
+type instance Apply (MySumF a b) BTag = Bool
+type instance Apply (MySumF a b) CTag = a
+type instance Apply (MySumF a b) DTag = a
+type instance Apply (MySumF a b) ETag = b
 
-type instance FieldType (SumF a b) BTag = Bool
+type instance SumField (MySum a b) = MySumF a b
 
-type instance FieldType (SumF a b) CTag = a
+type instance SumTag (MySum a b) = MySumTag
 
-type instance FieldType (SumF a b) DTag = a
-
-type instance FieldType (SumF a b) ETag = b
-
-type instance SumField (Sum a b) = SumF a b
-
-type instance SumIndex (Sum a b) = SumTag
-
-instance IsSum (Sum a b) where
-  sumConNames =
-    makePi' $
-      Const . \case
+instance IsSum (MySum a b) where
+  sumConName = \case
         SATag -> "A"
         SBTag -> "B"
         SCTag -> "C"
@@ -485,10 +494,10 @@ instance Known @ProductTag Field2 where know = SField2
 instance Known @ProductTag Field3 where know = SField3
 
 instance Tag ProductTag where
-  data Singleton ProductTag t where
-    SField1 :: Singleton ProductTag Field1
-    SField2 :: Singleton ProductTag Field2
-    SField3 :: Singleton ProductTag Field3
+  data Singleton t where
+    SField1 :: Singleton Field1
+    SField2 :: Singleton Field2
+    SField3 :: Singleton Field3
 
   knowns = \case
     SField1 -> Dict
@@ -514,9 +523,9 @@ instance Tag ProductTag where
 
 -- | A symbol used so that we can defunctionalize the mapping
 -- @ProductFamily@
-data ProductF (a :: Type) (t :: Proxy ProductTag)
+data ProductF (a :: Type) (s :: Proxy ProductTag) (t :: Proxy Type)
 
-type instance FieldType (ProductF a) t = ProductFamily a t
+type instance Apply (ProductF a) t = ProductFamily a t 
 
 type family ProductFamily (a :: Type) (t :: ProductTag) :: Type where
   ProductFamily _ Field1 = Int
@@ -568,8 +577,8 @@ type family NestedProductTagF a where
   NestedProductTagF DTag = NestedProductDTag
   NestedProductTagF ETag = NestedProductETag
 
-type NestedProductTag :: SumTag -> Type
-newtype NestedProductTag (a :: SumTag)
+type NestedProductTag :: MySumTag -> Type
+newtype NestedProductTag (a :: MySumTag)
   = NestedProductTag (NestedProductTagF a)
 
 type SNestedProductATag :: NestedProductTag ATag -> Type
@@ -592,7 +601,7 @@ type SNestedProductETag :: NestedProductTag ETag -> Type
 data SNestedProductETag a where
   SNE1 :: SNestedProductETag ('NestedProductTag NE1)
 
-type SNestedProductTagF :: forall (a :: SumTag) -> NestedProductTag a -> Type
+type SNestedProductTagF :: forall (a :: MySumTag) -> NestedProductTag a -> Type
 type family SNestedProductTagF a where
   SNestedProductTagF ATag = SNestedProductATag
   SNestedProductTagF BTag = SNestedProductBTag
@@ -615,7 +624,7 @@ instance Known @(NestedProductTag DTag) ('NestedProductTag ND1) where
 instance Known @(NestedProductTag ETag) ('NestedProductTag NE1) where
   know = SNestedProductTag SNE1
 
-type TheTags :: forall (a :: SumTag) -> [NestedProductTag a]
+type TheTags :: forall (a :: MySumTag) -> [NestedProductTag a]
 type family TheTags a where
   TheTags ATag = '[ 'NestedProductTag NA1, 'NestedProductTag NA2]
   TheTags BTag = '[]
@@ -623,7 +632,7 @@ type family TheTags a where
   TheTags DTag = '[ 'NestedProductTag ND1]
   TheTags ETag = '[ 'NestedProductTag NE1]
 
-type ThePi :: forall (a :: SumTag) -> (NestedProductTag a -> Type) -> Type
+type ThePi :: forall (a :: MySumTag) -> (NestedProductTag a -> Type) -> Type
 type family ThePi a b where
   ThePi ATag f = (f ('NestedProductTag NA1), f ('NestedProductTag NA2))
   ThePi BTag f = ()
@@ -631,8 +640,9 @@ type family ThePi a b where
   ThePi DTag f = f ('NestedProductTag ND1)
   ThePi ETag f = f ('NestedProductTag NE1)
 
-instance (Known @SumTag a) => Tag (NestedProductTag a) where
-  newtype Singleton (NestedProductTag a) i = SNestedProductTag {unSNestedProductTag :: SNestedProductTagF a i}
+instance (Known @MySumTag a) => Tag (NestedProductTag a) where
+  newtype Singleton (i :: NestedProductTag a)
+      = SNestedProductTag {unSNestedProductTag :: SNestedProductTagF a i}
 
   type Tags (NestedProductTag a) = TheTags a
 
@@ -701,12 +711,12 @@ newtype WrapPi f k s = WrapPi (Pi @(f s) k)
 type BetterConst :: forall f. Type -> forall z. f z -> Type
 newtype BetterConst t x = BetterConst t
 
-foo :: Sigma @SumTag (WrapPi NestedProductTag (BetterConst String))
+foo :: Sigma @MySumTag (WrapPi NestedProductTag (BetterConst String))
 foo =
   MkSigma @_ @ATag
     ( WrapPi
         ( makePi'
-            ( \(st :: Singleton (NestedProductTag ATag) i) ->
+            ( \(st :: Singleton i) ->
                 case knowns st of
                   Dict ->
                     case know @_ @i of
@@ -718,26 +728,26 @@ foo =
 
 -- | A symbol used so that we can defunctionalize the mapping
 -- @SumFamily@
-data SumOfProductsF (a :: Type) (b :: Type) (s :: SumTag) (t :: Proxy (NestedProductTag s))
+data SumOfProductsF (a :: Type) (b :: Type) (s :: MySumTag) (t :: Proxy (NestedProductTag s)) (r :: Proxy Type)
 
 -- Do I need to generalise this?
-type instance FieldType (SumOfProductsF a b s) t = SumOfProductsFamily a b s t
+type instance Apply (SumOfProductsF a b s) t = SumOfProductsFamily a b s t
 
-type SumOfProductsFamily :: Type -> Type -> forall (s :: SumTag) -> NestedProductTag s -> Type
-type family SumOfProductsFamily (a :: Type) (b :: Type) (s :: SumTag) (t :: NestedProductTag s) :: Type where
+type SumOfProductsFamily :: Type -> Type -> forall (s :: MySumTag) -> NestedProductTag s -> Type
+type family SumOfProductsFamily (a :: Type) (b :: Type) (s :: MySumTag) (t :: NestedProductTag s) :: Type where
   SumOfProductsFamily a _ ATag ('NestedProductTag NA1) = a
   SumOfProductsFamily _ b ATag ('NestedProductTag NA2) = b
   SumOfProductsFamily a _ CTag ('NestedProductTag NC1) = a
   SumOfProductsFamily _ b DTag ('NestedProductTag ND1) = b
   SumOfProductsFamily _ _ ETag ('NestedProductTag NE1) = Char
 
-type Newtyped2 :: Type -> Type -> forall (s :: SumTag). NestedProductTag s -> Type
+type Newtyped2 :: Type -> Type -> forall (s :: MySumTag). NestedProductTag s -> Type
 newtype Newtyped2 a b (i :: NestedProductTag s) = Newtyped2 {getNewtyped2 :: SumOfProductsFamily a b s i}
 
-type ForeachTopField a b c = ForeachTopField' a b c (Tags SumTag)
+type ForeachTopField a b c = ForeachTopField' a b c (Tags MySumTag)
 
 type ForeachTopField' ::
-  Type -> Type -> (Type -> Constraint) -> [SumTag] -> Constraint
+  Type -> Type -> (Type -> Constraint) -> [MySumTag] -> Constraint
 type family ForeachTopField' a b c ts where
   ForeachTopField' _ _ _ '[] = ()
   ForeachTopField' a b c (t : ts) =
@@ -750,7 +760,7 @@ type ForeachNestedField' ::
   Type ->
   Type ->
   (Type -> Constraint) ->
-  forall (s :: SumTag) ->
+  forall (s :: MySumTag) ->
   [NestedProductTag s] ->
   Constraint
 type family ForeachNestedField' a b c s ns where
@@ -759,10 +769,10 @@ type family ForeachNestedField' a b c s ns where
     (c (SumOfProductsFamily a b s n), ForeachNestedField' a b c s ns)
 
 provideConstraintNested ::
-  forall a b c (s :: SumTag) (n :: NestedProductTag s) r.
-  (Known @SumTag s) =>
+  forall a b c (s :: MySumTag) (n :: NestedProductTag s) r.
+  (Known @MySumTag s) =>
   (ForeachTopField a b c) =>
-  Singleton (NestedProductTag s) n ->
+  Singleton n ->
   ((c (SumOfProductsFamily a b s n)) => r) ->
   r
 provideConstraintNested = case know @_ @s of
@@ -780,8 +790,8 @@ provideConstraintNested = case know @_ @s of
 genericShow' ::
   forall a b x.
   (ForeachTopField a b Show) =>
-  Pi @SumTag (Const String) ->
-  (x -> Sigma @SumTag (WrapPi NestedProductTag (Newtyped2 a b))) ->
+  Pi @MySumTag (Const String) ->
+  (x -> Sigma @MySumTag (WrapPi NestedProductTag (Newtyped2 a b))) ->
   x ->
   String
 genericShow' pi f x = mashPiSigma pi (f x) $ \(Const conName) (WrapPi fields) ->
@@ -789,8 +799,7 @@ genericShow' pi f x = mashPiSigma pi (f x) $ \(Const conName) (WrapPi fields) ->
     ++ " "
     ++ unwords
       ( toListPi
-          ( \(su :: Singleton (NestedProductTag s) n) ->
-              provideConstraintNested @a @b @Show su show . getNewtyped2
+          ( \su -> provideConstraintNested @a @b @Show su show . getNewtyped2
           )
           fields
       )
@@ -799,7 +808,7 @@ genericShowNested :: (Show a, Show b) => SumOfProducts a b -> String
 genericShowNested =
   genericShow' sumOfProductsConNames sumOfProductsToSigmaOfPi
 
-sumOfProductsConNames :: Pi @SumTag (Const String)
+sumOfProductsConNames :: Pi @MySumTag (Const String)
 sumOfProductsConNames =
   makePi' $
     Const . \case
@@ -812,7 +821,7 @@ sumOfProductsConNames =
 sumOfProductsToSigmaOfPi ::
   forall a b.
   SumOfProducts a b ->
-  Sigma @SumTag (WrapPi NestedProductTag (Newtyped2 a b))
+  Sigma @MySumTag (WrapPi NestedProductTag (Newtyped2 a b))
 sumOfProductsToSigmaOfPi = \case
   SP1 a b -> k $ \case
     SNA1 -> a
@@ -836,11 +845,11 @@ sumOfProductsToSigmaOfPi = \case
 
     k ::
       forall s.
-      (Known @SumTag s) =>
+      (Known @MySumTag s) =>
       ( forall i'.
         (Known @(NestedProductTag s) i') =>
         SNestedProductTagF s i' ->
         SumOfProductsFamily a b s i'
       ) ->
-      Sigma @SumTag (WrapPi NestedProductTag (Newtyped2 a b))
+      Sigma @MySumTag (WrapPi NestedProductTag (Newtyped2 a b))
     k g = MkSigma @_ @s (WrapPi (makePi (f g)))
